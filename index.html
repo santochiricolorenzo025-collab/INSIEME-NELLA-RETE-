@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Quiz 3x3 - INSIEME NELLA RETE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .perspective { perspective: 1000px; }
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+            cursor: pointer;
+        }
+        .flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            padding: 8px;
+        }
+        
+        /* Stili della modalità Normale (Sempre chiari) */
+        .flip-card-front {
+            background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+            color: white;
+            font-size: 1.5rem;
+            transition: background 0.5s;
+        }
+        .grid-right .flip-card-front {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+        .flip-card-back {
+            transform: rotateY(180deg);
+            border: 2px solid #e5e7eb;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        /* Stili della Super Hard Mode (Attivati esclusivamente tramite classe JS) */
+        body.hard-mode-active {
+            background-color: #020617 !important;
+            color: #f1f5f9 !important;
+        }
+        body.hard-mode-active .flip-card-front {
+            background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%) !important;
+            color: #000 !important;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.6);
+        }
+        body.hard-mode-active .flip-card-back {
+            border-color: #ef4444 !important;
+            color: #020617 !important;
+        }
+        body.hard-mode-active .stats-card {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        body.hard-mode-active .stats-card span:first-child {
+            color: #f87171 !important;
+        }
+        body.hard-mode-active .game-grid {
+            background-color: #0f172a !important;
+            border-color: #450a0a !important;
+        }
+        body.hard-mode-active .reshuffle-bg {
+            background-color: #1e293b !important;
+        }
+        body.hard-mode-active .end-modal-content {
+            background-color: #0f172a !important;
+            border-color: #ef4444 !important;
+            color: #f1f5f9 !important;
+        }
+
+        .matched { opacity: 0.3; cursor: default; pointer-events: none; }
+        .disabled-grid { pointer-events: none; }
+        
+        /* Trasparenza applicata solo alle tessere non selezionate della griglia inattiva */
+        .disabled-grid .perspective:not(.flipped):not(.matched) { opacity: 0.4; }
+        
+        #quiz-timer-bar {
+            transition: width 0.1s linear;
+        }
+
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900 transition-colors duration-500">
+
+    <div class="max-w-6xl mx-auto px-4 py-6 flex flex-col items-center relative">
+        <header class="text-center mb-6">
+            <h1 id="main-title" class="text-3xl font-bold text-indigo-700 transition-all duration-500">Memory Quiz - INSIEME NELLA RETE</h1>
+        </header>
+
+        <!-- Statistiche -->
+        <div class="flex gap-4 mb-4">
+            <div class="stats-card bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-center transition-colors">
+                <span class="block text-xs text-slate-400 uppercase font-bold">Punti</span>
+                <span id="score" class="text-xl font-black text-indigo-600 transition-colors">0</span>
+            </div>
+            <div class="stats-card bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-center transition-colors">
+                <span class="block text-xs text-slate-400 uppercase font-bold">Coppie</span>
+                <span id="matches" class="text-xl font-black text-orange-500">0/9</span>
+            </div>
+        </div>
+
+        <!-- Timer Rimescolamento per la Super Hard Mode -->
+        <div id="reshuffle-container" class="w-full max-w-[824px] mb-6 hidden opacity-0 transition-opacity duration-500">
+            <div class="flex justify-between text-xs font-bold text-red-500 mb-1">
+                <span class="animate-pulse">⚠️ ATTENZIONE: LE CARTE SI MESCOLANO TRA POCO!</span>
+                <span id="reshuffle-countdown">12.0s</span>
+            </div>
+            <div class="w-full reshuffle-bg bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div id="reshuffle-bar" class="h-full bg-red-600 transition-all duration-100" style="width: 100%"></div>
+            </div>
+        </div>
+
+        <!-- Doppia Griglia 3x3 -->
+        <div class="flex flex-col lg:flex-row gap-6 w-full justify-center">
+            <div class="w-full max-w-[400px]">
+                <div id="badge-left" class="bg-indigo-600 text-white text-xs font-bold py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500">Situazione (Causa)</div>
+                <div id="grid-left" class="game-grid grid grid-cols-3 gap-2 p-3 bg-white rounded-b-lg shadow-md border-2 border-indigo-100 transition-colors"></div>
+            </div>
+            <div class="w-full max-w-[400px]">
+                <div id="badge-right" class="bg-orange-500 text-white text-xs font-bold py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500">Soluzione (Azione)</div>
+                <div id="grid-right" class="game-grid grid grid-cols-3 gap-2 p-3 bg-white rounded-b-lg shadow-md border-2 border-orange-100 disabled-grid transition-colors"></div>
+            </div>
+        </div>
+
+        <!-- Pulsante Reset -->
+        <div class="mt-8 flex gap-4">
+            <button id="restart-btn" class="bg-slate-800 text-white px-8 py-2 rounded-full font-bold hover:bg-black transition-all">Reset Totale</button>
+        </div>
+
+        <!-- Pulsante Continua (appare dopo un errore di associazione) -->
+        <button id="continue-btn" class="fixed bottom-28 right-8 bg-emerald-600 text-white px-10 py-4 rounded-2xl font-black shadow-2xl hover:bg-emerald-700 transition-all hidden z-40 animate-bounce">
+            CONTINUA →
+        </button>
+
+        <!-- Pulsante Super Hard Mode fissa in basso a destra (reso più compatto) -->
+        <button id="hard-mode-btn" class="fixed bottom-6 right-6 bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all z-40 border border-white/20 hover:scale-105 active:scale-95 flex items-center gap-1.5">
+            💀 SUPER HARD MODE
+        </button>
+    </div>
+
+    <!-- Overlay Quiz -->
+    <div id="quiz-overlay" class="fixed inset-0 bg-indigo-900/90 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl relative overflow-hidden">
+            <div id="quiz-timer-bar" class="absolute top-0 left-0 h-2 bg-orange-500 w-full"></div>
+            <h3 id="quiz-title-box" class="text-lg font-bold text-slate-800 mt-2 mb-4">Quiz di Emergenza!</h3>
+            <p id="quiz-question" class="text-slate-600 mb-6 font-medium leading-tight text-sm"></p>
+            <div id="quiz-options" class="space-y-3"></div>
+        </div>
+    </div>
+
+    <!-- Modal Fine Gioco -->
+    <div id="end-modal" class="fixed inset-0 bg-black/70 hidden items-center justify-center p-4 z-50">
+        <div class="end-modal-content bg-white rounded-3xl p-8 max-w-sm w-full text-center border-2 border-transparent">
+            <h2 id="end-title" class="text-2xl font-bold mb-4">Campione di Detox!</h2>
+            <p id="end-message" class="mb-6"></p>
+            <button onclick="location.reload()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">Gioca di nuovo</button>
+        </div>
+    </div>
+
+    <script>
+        // Database delle coppie per la modalità Normale (con i colori della Switch Lite)
+        const normalPairs = [
+            { id: 1, left: "Notifiche attive tutto il giorno", right: "Disattivo le notifiche non urgenti", quiz: "Qual è il principale rischio delle notifiche continue sul telefono?", opts: ["Consumano troppa batteria", "Ti distraggono in continuazione e aumentano lo stress", "Fanno diventare lo schermo rosso"], correct: 1, color: "#8fe3e3" }, // Turchese Switch Lite
+            { id: 2, left: "Ansia se il telefono è scarico", right: "Faccio un'ora di distacco programmato", quiz: "Se vedi la batteria quasi scarica e ti senti un po' preoccupato, cosa è meglio fare?", opts: ["Iniziare a piangere finché qualcuno non ti dà un caricabatterie", "Fare un bel respiro, posare il telefono e fare un bel gioco o un disegno", "Buttare via il telefono e comprarne subito uno nuovo"], correct: 1, color: "#ff9e9e" }, // Corallo Switch Lite
+            { id: 3, left: "Più clicchi", right: "Più cliccherai :(", quiz: "Perché i social e i giochi sul telefono spingono a fare continui clic?", opts: ["Perché rilasciano una sostanza nel cervello (dopamina) che dà felicità immediata", "Perché gli schermi touch funzionano solo se premuti velocemente", "Per riscaldare le dita quando fa freddo"], correct: 0, color: "#ffeb60" }, // Giallo Switch Lite
+            { id: 4, left: "Vado in bagno col telefono", right: "Lascio il dispositivo fuori", quiz: "Perché portare il telefono ovunque (anche in bagno) è una cattiva abitudine?", opts: ["Perché l'acqua lo fa ricaricare più in fretta", "Perché non impariamo più a stare da soli con i nostri pensieri", "Perché i telefoni odiano il sapone"], correct: 1, color: "#a2bffe" }, // Blu Switch Lite
+            { id: 5, left: "Scroll infinito prima di dormire", right: "Spengo il telefono e leggo un libro", quiz: "Cosa fa la luce blu dello schermo al nostro cervello di sera?", opts: ["Gli fa credere che sia ancora giorno, rendendo difficile addormentarsi", "Lo aiuta a sognare cose più divertenti", "Rende gli occhi capaci di vedere al buio come i gatti"], correct: 0, color: "#cfd6df" }, // Grigio Switch Lite
+            { id: 6, left: "Uso lo smartphone a tavola", right: "Mi gusto il sapore del cibo", quiz: "Cosa succede se mangi tenendo lo sguardo incollato al telefono?", opts: ["Il cibo diventa improvvisamente più salato", "Non ti accorgi di quanto mangi e non ti godi il pranzo in famiglia", "Impari a cucinare guardando lo schermo"], correct: 1, color: "#fdba74" }, // Arancione Sunset Lite
+            { id: 7, left: "Uso il cellulare mentre cammino", right: "Telefono in tasca e faccio attenzione", quiz: "Cosa rischia chi cammina per strada guardando lo smartphone?", opts: ["Di perdere i giga della connessione", "Di inciampare, andare a sbattere o rischiare un incidente", "Di camminare all'indietro senza accorgersene"], correct: 1, color: "#a7f3d0" }, // Menta Switch Lite
+            { id: 8, left: "Controllo i like ogni 5 minuti", right: "Lascio stare i social per un po'", quiz: "Perché ricevere un 'like' o un cuoricino ci fa felici subito?", opts: ["Perché stimola il nostro cervello con un piacere immediato (dopamina)", "Perché ci fa correre più veloci", "Perché riscalda il telefono"], correct: 0, color: "#f9a8d4" }, // Rosa Switch Lite
+            { id: 9, left: "Studio con un video di sottofondo", right: "Faccio i compiti senza distrazioni", quiz: "Perché i video o i giochi di sottofondo non aiutano mentre si studia?", opts: ["Perché consumano tutto il Wi-Fi di casa", "Perché rubano spazio alla memoria del cervello, facendoti fare più errori", "Perché i professori possono vederli a distanza"], correct: 1, color: "#d8b4fe" }  // Lavanda Switch Lite
+        ];
+
+        // Database delle coppie per la Super Hard Mode (con terminologie confuse/tecniche e colori neon saturi)
+        const hardPairs = [
+            { id: 1, left: "Doomscrolling compulsivo e acuto", right: "Blocco DNS delle app sorgente", quiz: "In cosa consiste esattamente il fenomeno psicopatologico del 'doomscrolling'?", opts: ["Scorrere costantemente notizie ed eventi catastrofici aumentando l'ansia", "Configurare una modalità a basso consumo energetico di notte", "Filtrare gli aggiornamenti software nocivi per il chip grafico"], correct: 0, color: "#fda4af" }, // Rosa Neon
+            { id: 2, left: "Crisi d'ansia da Nomofobia acuta", right: "Pratica controllata di JOMO", quiz: "Qual è la definizione corretta del costrutto di 'Nomofobia'?", opts: ["La paura patologica di trovarsi in assenza di telefono cellulare o segnale di rete", "Il refusal ideologico della digitalizzazione e delle IA", "La disfunzione cognitiva derivante da eccessivi stimoli uditivi"], correct: 0, color: "#cbd5e1" }, // Grigio Acciaio
+            { id: 3, left: "Loop di feedback dopaminergico", right: "Introduzione di attriti cognitivi", quiz: "Come agisce la gamification delle notifiche nel rinforzo della dipendenza?", opts: ["Satura i circuiti cerebrali con scariche di dopamina da ricompensa intermittente", "Genera sovraccarico termico sul processore costringendo l'utente a smettere", "Converte i like in sconti fisici reali spendibili online"], correct: 0, color: "#fef08a" }, // Giallo Neon
+            { id: 4, left: "Alienazione da Phubbing sociale", right: "Esilio digitale in scatola chiusa", quiz: "Cosa si intende per 'Phubbing' all'interno delle dinamiche interpersonali?", opts: ["Ignorare l'interlocutore reale a favore del display del proprio dispositivo", "Aggiornare simultaneamente più piattaforme cloud in tempo reale", "Pubblicare contenuti alterati tramite filtri di tracciamento facciale"], correct: 0, color: "#93c5fd" }, // Blu Elettrico
+            { id: 5, left: "Infinite Scroll non strutturato", right: "Interfaccia rigorosamente gray-scale", quiz: "Perché il meccanismo di 'Infinite Scroll' impedisce la disconnessione?", opts: ["Perché elimina i naturali punti di stop e spinge a consumare flussi infiniti", "Perché sincronizza il battito cardiaco con i frame della pagina", "Perché blocca fisicamente l'uso del tasto di chiusura delle finestre"], correct: 0, color: "#f97316" }, // Arancione Neon
+            { id: 6, left: "Sindrome cronica da FOMO attiva", right: "Disattivazione totale dei feed algoritmitici", quiz: "Quale dinamica psicologica caratterizza la cosiddetta FOMO?", opts: ["Il timore ossessivo di essere esclusi da esperienze gratificanti vissute da altri online", "La fobia di subire violazioni della propria privacy da parte di hacker", "La perdita di interesse per le interazioni testuali asincrone"], correct: 0, color: "#86efac" }, // Verde Menta Lucido
+            { id: 7, left: "Vibrazione fantasma persistente", right: "Inibizione del motore aptico hardware", quiz: "Cos'è la sindrome o allucinazione della 'vibrazione fantasma'?", opts: ["Percepire erroneamente che il dispositivo stia squillando o vibrando", "Un errore critico nell'alimentazione interna della batteria", "L'interferenza magnetica delle antenne 5G nelle vicinanze"], correct: 0, color: "#c084fc" }, // Viola Lavanda Neon
+            { id: 8, left: "Vamping notturno sistematico", right: "Sveglia analogica a distanza fissa", quiz: "Quale comportamento definisce la pratica nota come 'Vamping'?", opts: ["Restare svegli fino all'alba utilizzando i social, rubando ore preziose al sonno", "La condivisione compulsiva di foto a tema horror o spettrale", "La calibrazione automatica della luminosità minima in assenza di luce"], correct: 0, color: "#2dd4bf" }, // Turchese Neon
+            { id: 9, left: "Erosione dei confini da Multitasking", right: "Esecuzione rigorosa in Single-Tasking", quiz: "Perché il multitasking digitale continuo degrada la performance cognitiva?", opts: ["Perché costringe il cervello a un sovraccarico dovuto ai continui 'switch di compito'", "Perché riduce la banda passante della propria connessione Wi-Fi", "Perché rovina i cristalli liquidi dello schermo a causa della pressione multipla"], correct: 0, color: "#f472b6" }  // Rosa Acceso
+        ];
+
+        let pairs = [...normalPairs]; // Default: modalità normale
+
+        let flippedLeft = null, flippedRight = null;
+        let score = 0, matches = 0;
+        let isLock = false;
+        let quizTimer, quizTimeLeft;
+
+        // Variabili Super Hard Mode
+        let isHardMode = false;
+        let hardShuffleInterval = null;
+        let hardShuffleTimeLeft = 12.0;
+
+        function shuffle(array) { return [...array].sort(() => Math.random() - 0.5); }
+
+        function createBoard(isReshuffle = false) {
+            const gridL = document.getElementById('grid-left');
+            const gridR = document.getElementById('grid-right');
+            
+            const allLContainers = Array.from(gridL.children);
+            const allRContainers = Array.from(gridR.children);
+
+            // Inizializzazione della griglia se vuota
+            if (!isReshuffle && allLContainers.length === 0) {
+                const lData = shuffle(pairs);
+                const rData = shuffle(pairs);
+                lData.forEach(item => gridL.appendChild(createCard(item.left, item.id, 'left')));
+                rData.forEach(item => gridR.appendChild(createCard(item.right, item.id, 'right')));
+                return;
+            }
+
+            // Identificazione delle coppie già accoppiate
+            const matchedIds = Array.from(document.querySelectorAll('.matched'))
+                                    .map(el => {
+                                        const inner = el.querySelector('.flip-card-inner');
+                                        return inner ? parseInt(inner.dataset.id) : null;
+                                    })
+                                    .filter(id => id !== null);
+            
+            const remainingPairs = pairs.filter(p => !matchedIds.includes(p.id));
+
+            // Rimescolamento solo delle carte rimanenti (non ancora accoppiate)
+            const lShuffledTexts = shuffle(remainingPairs.map(p => ({id: p.id, text: p.left})));
+            const rShuffledTexts = shuffle(remainingPairs.map(p => ({id: p.id, text: p.right})));
+
+            let lIdx = 0, rIdx = 0;
+            allLContainers.forEach(container => {
+                if (!container.classList.contains('matched')) {
+                    const data = lShuffledTexts[lIdx++];
+                    if (data) {
+                        container.innerHTML = createCardHTML(data.text, data.id, 'left');
+                        container.classList.remove('flipped');
+                    }
+                }
+            });
+            allRContainers.forEach(container => {
+                if (!container.classList.contains('matched')) {
+                    const data = rShuffledTexts[rIdx++];
+                    if (data) {
+                        container.innerHTML = createCardHTML(data.text, data.id, 'right');
+                        container.classList.remove('flipped');
+                    }
+                }
+            });
+
+            // Se rimescolato a causa del disordine in Hard Mode, applica un feedback visivo di vibrazione
+            if (isReshuffle) {
+                gridL.classList.add('shake');
+                gridR.classList.add('shake');
+                setTimeout(() => {
+                    gridL.classList.remove('shake');
+                    gridR.classList.remove('shake');
+                }, 500);
+            }
+        }
+
+        function createCardHTML(text, pid, side) {
+            const currentPair = pairs.find(p => p.id === pid);
+            const cardColor = currentPair ? currentPair.color : '#ffffff';
+
+            return `
+                <div class="flip-card-inner h-full w-full" data-id="${pid}" data-side="${side}">
+                    <div class="flip-card-front">${isHardMode ? '💀' : '?'}</div>
+                    <div class="flip-card-back" style="background-color: ${cardColor};">${text}</div>
+                </div>
+            `;
+        }
+
+        function createCard(text, pid, side) {
+            const el = document.createElement('div');
+            el.className = 'perspective w-full h-24';
+            el.innerHTML = createCardHTML(text, pid, side);
+            el.onclick = () => handleFlip(el, side);
+            return el;
+        }
+
+        function handleFlip(card, side) {
+            if (isLock) return;
+            const inner = card.querySelector('.flip-card-inner');
+            if (card.classList.contains('flipped') || card.classList.contains('matched')) return;
+
+            if (side === 'left' && !flippedLeft) {
+                card.classList.add('flipped');
+                flippedLeft = inner;
+                document.getElementById('grid-right').classList.remove('disabled-grid');
+                document.getElementById('grid-left').classList.add('disabled-grid');
+            } else if (side === 'right' && flippedLeft && !flippedRight) {
+                card.classList.add('flipped');
+                flippedRight = inner;
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            isLock = true;
+            const pId = parseInt(flippedLeft.dataset.id);
+            const isMatch = pId === parseInt(flippedRight.dataset.id);
+
+            if (isMatch) {
+                // Ferma momentaneamente il timer del rimescolamento durante il quiz
+                if (isHardMode) pauseHardShuffle();
+                setTimeout(() => startQuiz(pId), 600);
+            } else {
+                document.getElementById('continue-btn').classList.remove('hidden');
+            }
+        }
+
+        document.getElementById('continue-btn').onclick = function() {
+            this.classList.add('hidden');
+            flippedLeft.parentElement.classList.remove('flipped');
+            flippedRight.parentElement.classList.remove('flipped');
+            resetTurn();
+        };
+
+        function startQuiz(pairId) {
+            const quizData = pairs.find(p => p.id === pairId);
+            const overlay = document.getElementById('quiz-overlay');
+            const qText = document.getElementById('quiz-question');
+            const qOpts = document.getElementById('quiz-options');
+            const timerBar = document.getElementById('quiz-timer-bar');
+
+            // Impostazione grafica in base alla difficoltà
+            const quizTitleBox = document.getElementById('quiz-title-box');
+            if (isHardMode) {
+                quizTitleBox.textContent = "⚠️ DECRIPTAZIONE SYSTEM CRITICAL!";
+                quizTitleBox.className = "text-lg font-black text-red-600 mt-2 mb-4";
+            } else {
+                quizTitleBox.textContent = "Quiz di Emergenza!";
+                quizTitleBox.className = "text-lg font-bold text-slate-800 mt-2 mb-4";
+            }
+
+            qText.textContent = quizData.quiz;
+            qOpts.innerHTML = '';
+            
+            // Mappiamo le opzioni originali salvando la loro correttezza rispetto all'indice originale
+            const optionsWithCorrectness = quizData.opts.map((opt, idx) => ({
+                text: opt,
+                isCorrect: idx === quizData.correct
+            }));
+
+            // Mescoliamo l'array delle opzioni
+            const shuffledOptions = shuffle(optionsWithCorrectness);
+
+            shuffledOptions.forEach((opt) => {
+                const btn = document.createElement('button');
+                btn.className = isHardMode 
+                    ? "w-full text-left p-3 rounded-xl border-2 border-red-500 bg-red-950/20 hover:bg-red-950/60 transition-all font-semibold text-xs text-slate-200"
+                    : "w-full text-left p-3 rounded-xl border-2 border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 transition-all font-semibold text-xs text-slate-800";
+                btn.textContent = opt.text;
+                btn.onclick = () => endQuiz(opt.isCorrect);
+                qOpts.appendChild(btn);
+            });
+
+            overlay.style.display = 'flex';
+            quizTimeLeft = 100;
+
+            // Determina la velocità di svuotamento del timer
+            // Hard Mode: 1.2 ogni 100ms (~8.3s)
+            // Normale: 0.3 ogni 100ms (~33s per i bambini)
+            const decremento = isHardMode ? 1.2 : 0.3;
+
+            quizTimer = setInterval(() => {
+                quizTimeLeft -= decremento;
+                timerBar.style.width = quizTimeLeft + '%';
+                if (quizTimeLeft <= 0) {
+                    clearInterval(quizTimer);
+                    endQuiz(false);
+                }
+            }, 100);
+        }
+
+        function endQuiz(success) {
+            clearInterval(quizTimer);
+            document.getElementById('quiz-overlay').style.display = 'none';
+
+            if (success) {
+                flippedLeft.parentElement.classList.add('matched');
+                flippedRight.parentElement.classList.add('matched');
+                score += isHardMode ? 40 : 20; // Doppio punteggio in Hard Mode!
+                matches++;
+                document.getElementById('score').textContent = score;
+                document.getElementById('matches').textContent = `${matches}/9`;
+                if (matches === 9) {
+                    showEnd();
+                } else {
+                    resetTurn();
+                    // Ripristina e riavvia il rimescolamento in Hard Mode
+                    if (isHardMode) {
+                        hardShuffleTimeLeft = 12.0;
+                        resumeHardShuffle();
+                    }
+                }
+            } else {
+                document.body.classList.add('shake');
+                setTimeout(() => {
+                    document.body.classList.remove('shake');
+                    // Rimescola completamente le carte non indovinate in caso di errore
+                    createBoard(true);
+                    resetTurn();
+                    if (isHardMode) {
+                        hardShuffleTimeLeft = 12.0;
+                        resumeHardShuffle();
+                    }
+                }, 500);
+            }
+        }
+
+        function resetTurn() {
+            flippedLeft = null;
+            flippedRight = null;
+            isLock = false;
+            document.getElementById('grid-left').classList.remove('disabled-grid');
+            document.getElementById('grid-right').classList.add('disabled-grid');
+        }
+
+        function startHardShuffleTimer() {
+            clearInterval(hardShuffleInterval);
+            const container = document.getElementById('reshuffle-container');
+            const countdownEl = document.getElementById('reshuffle-countdown');
+            const bar = document.getElementById('reshuffle-bar');
+
+            container.classList.remove('hidden');
+            setTimeout(() => { container.classList.add('opacity-100'); }, 50);
+
+            hardShuffleInterval = setInterval(() => {
+                if (isLock) return; // Se c'è un quiz aperto o una animazione in corso, ferma il tempo di rimescolamento
+                
+                hardShuffleTimeLeft -= 0.1;
+                if (hardShuffleTimeLeft <= 0) {
+                    hardShuffleTimeLeft = 12.0;
+                    createBoard(true); // Rimescola tutto!
+                }
+
+                countdownEl.textContent = hardShuffleTimeLeft.toFixed(1) + 's';
+                const percentage = (hardShuffleTimeLeft / 12.0) * 100;
+                bar.style.width = percentage + '%';
+            }, 100);
+        }
+
+        function pauseHardShuffle() {
+            clearInterval(hardShuffleInterval);
+        }
+
+        function resumeHardShuffle() {
+            if (isHardMode && matches < 9) {
+                startHardShuffleTimer();
+            }
+        }
+
+        function stopHardShuffleTimer() {
+            clearInterval(hardShuffleInterval);
+            const container = document.getElementById('reshuffle-container');
+            container.classList.remove('opacity-100');
+            setTimeout(() => { container.classList.add('hidden'); }, 500);
+        }
+
+        const hardModeBtn = document.getElementById('hard-mode-btn');
+        hardModeBtn.onclick = function() {
+            isHardMode = !isHardMode;
+
+            // Ripulisci i contenitori grafici esistenti per forzare la rigenerazione totale
+            document.getElementById('grid-left').innerHTML = '';
+            document.getElementById('grid-right').innerHTML = '';
+
+            if (isHardMode) {
+                // Impostazione grafica ed elementi testuali per Super Hard Mode
+                document.body.classList.add('hard-mode-active');
+                this.textContent = "🟢 MODALITÀ NORMALE";
+                this.classList.remove('bg-red-600', 'hover:bg-red-700');
+                this.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                document.getElementById('main-title').className = "text-3xl font-black text-red-600 transition-all duration-500 animate-pulse";
+                document.getElementById('main-title').textContent = "⚠️ SYSTEM MALFUNCTION - HARD MODE";
+                
+                document.getElementById('badge-left').className = "bg-red-600 text-black font-black text-xs py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500";
+                document.getElementById('badge-right').className = "bg-red-950 text-red-400 font-black text-xs py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500";
+                
+                document.getElementById('score').className = "text-xl font-black text-red-600 transition-colors";
+
+                pairs = [...hardPairs];
+                score = 0;
+                matches = 0;
+                document.getElementById('score').textContent = score;
+                document.getElementById('matches').textContent = "0/9";
+                
+                resetTurn();
+                createBoard(false);
+                hardShuffleTimeLeft = 12.0;
+                startHardShuffleTimer();
+            } else {
+                // Ripristina la modalità normale (Completamente chiara, libera da classi scure automatiche)
+                document.body.classList.remove('hard-mode-active');
+                this.textContent = "💀 SUPER HARD MODE";
+                this.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+                this.classList.add('bg-red-600', 'hover:bg-red-700');
+                document.getElementById('main-title').className = "text-3xl font-bold text-indigo-700 transition-all duration-500";
+                document.getElementById('main-title').textContent = "Memory Quiz - INSIEME NELLA RETE";
+
+                document.getElementById('badge-left').className = "bg-indigo-600 text-white text-xs font-bold py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500";
+                document.getElementById('badge-right').className = "bg-orange-500 text-white text-xs font-bold py-1 px-3 rounded-t-lg text-center uppercase transition-all duration-500";
+                
+                document.getElementById('score').className = "text-xl font-black text-indigo-600 transition-colors";
+
+                pairs = [...normalPairs];
+                score = 0;
+                matches = 0;
+                document.getElementById('score').textContent = score;
+                document.getElementById('matches').textContent = "0/9";
+
+                stopHardShuffleTimer();
+                resetTurn();
+                createBoard(false);
+            }
+        };
+
+        function showEnd() {
+            stopHardShuffleTimer();
+            const endTitle = document.getElementById('end-title');
+            const endMessage = document.getElementById('end-message');
+            
+            if (isHardMode) {
+                endTitle.textContent = "💻 SYSTEM DECRYPTED!";
+                endTitle.className = "text-2xl font-black mb-4 text-red-600 animate-pulse";
+                endMessage.innerHTML = `Incredibile! Hai sconfitto l'algoritmo impazzito della Super Hard Mode, totalizzando <strong class="text-red-500 text-lg">${score} punti</strong> sotto pressione costante! Sei un esperto indiscusso di benessere digitale avanzato.`;
+            } else {
+                endTitle.textContent = "Campione di Detox!";
+                endTitle.className = "text-2xl font-bold mb-4 text-indigo-700";
+                endMessage.textContent = `Ottimo lavoro! Hai abbinato tutte le coppie e risposto a tutti i quiz correttamente, totalizzando ben ${score} punti!`;
+            }
+            document.getElementById('end-modal').style.display = 'flex';
+        }
+
+        document.getElementById('restart-btn').onclick = () => location.reload();
+        window.onload = () => createBoard(false);
+    </script>
+</body>
+</html>
